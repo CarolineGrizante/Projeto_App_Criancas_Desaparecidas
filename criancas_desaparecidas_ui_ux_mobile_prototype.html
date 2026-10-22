@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crianças Desaparecidas - Protótipo Mobile (FHO)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom Tailwind Configuration for Strict Pantone Colors -->
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        mystic: {
+                            DEFAULT: '#13273F',
+                            dark: '#0A1421',
+                            light: '#1d395a',
+                            surface: '#162c47',
+                            border: '#24456b'
+                        },
+                        inferno: {
+                            DEFAULT: '#4E0000',
+                            dark: '#2B0202',
+                            bright: '#7A0A0A',
+                            light: '#9E1C1C'
+                        },
+                        pearl: {
+                            DEFAULT: '#E6D4C3',
+                            light: '#FAF6F0',
+                            dark: '#C8B29E',
+                            muted: '#A38F7C'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js for Sensors Simulation -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #060D17;
+            color: #FAF6F0;
+            background-image: 
+                radial-gradient(at 20% 20%, rgba(19, 39, 63, 0.4) 0px, transparent 50%),
+                radial-gradient(at 80% 80%, rgba(78, 0, 0, 0.25) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        /* Phone Frame 3D Depth & Styling */
+        .phone-wrapper {
+            perspective: 1200px;
+        }
+
+        .phone-mockup {
+            width: 380px;
+            max-width: 95vw;
+            height: 780px;
+            max-height: 90vh;
+            border-radius: 50px;
+            border: 12px solid #13273F;
+            box-shadow: 0 30px 80px -15px rgba(0, 0, 0, 0.95),
+                        0 0 50px rgba(19, 39, 63, 0.7),
+                        inset 0 0 3px 2px rgba(230, 212, 195, 0.2);
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        /* Dynamic Island / Top Hardware Notch */
+        .phone-dynamic-island {
+            width: 110px;
+            height: 28px;
+            background: #000000;
+            position: absolute;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-radius: 20px;
+            z-index: 60;
+            display: flex;
+            align-items: center;
+            justify-between;
+            padding: 0 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Glassmorphism Outer Toolbar */
+        .glass-toolbar {
+            background: rgba(19, 39, 63, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(230, 212, 195, 0.2);
+        }
+
+        /* Custom Scrollbar Inside Phone */
+        .phone-screen-content::-webkit-scrollbar {
+            width: 3px;
+        }
+        .phone-screen-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .phone-screen-content::-webkit-scrollbar-thumb {
+            background: rgba(230, 212, 195, 0.4);
+            border-radius: 3px;
+        }
+
+        /* Theme Inner Custom Classes */
+        .app-theme-dark {
+            background-color: #0A1421;
+            color: #FAF6F0;
+        }
+        .app-theme-light {
+            background-color: #FAF6F0;
+            color: #0A1421;
+        }
+
+        /* Pulse animation for 190 emergency button */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(122, 10, 10, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(122, 10, 10, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(122, 10, 10, 0); }
+        }
+        .emergency-pulse {
+            animation: pulse-ring 2s infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between items-center p-2 md:p-6 overflow-x-hidden">
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+    <!-- MAIN HEADER CONTROL BAR (Phone Context & Screen Switcher) -->
+    <header class="w-full max-w-4xl mx-auto glass-toolbar rounded-2xl p-3 mb-4 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-3">
+        <!-- Logo & Context -->
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-inferno flex items-center justify-center text-pearl text-lg shadow-md border border-pearl/20">
+                <i class="fa-solid fa-mobile-screen"></i>
+            </div>
+            <div>
+                <h1 class="font-extrabold text-sm md:text-base text-pearl-light tracking-wide flex items-center gap-2">
+                    CRIANÇAS DESAPARECIDAS
+                    <span class="text-[9px] bg-inferno px-2 py-0.5 rounded text-pearl font-mono uppercase">App Mobile FHO</span>
+                </h1>
+                <p class="text-[10px] text-pearl-muted">Interface Interativa e Caminhos do Dispositivo Móvel</p>
+            </div>
+        </div>
+
+        <!-- Phone Simulator Quick Controls -->
+        <div class="flex items-center space-x-2 flex-wrap justify-center">
+            
+            <!-- Quick Screen Selector Dropdown -->
+            <div class="relative">
+                <select id="screen-selector" onchange="loadPhoneScreen(this.value)" class="bg-mystic border border-mystic-border text-pearl text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none focus:border-pearl cursor-pointer shadow">
+                    <option value="home">🚨 1. Home & Emergência (190/181)</option>
+                    <option value="login">🔑 2. Login & Autenticação</option>
+                    <option value="register">👤 3. Criar Conta / Responsável</option>
+                    <option value="form">📝 4. Cadastrar Caso (+ B.O.)</option>
+                    <option value="cases">🔍 5. Lista de Crianças Desaparecidas</option>
+                    <option value="profile">📜 6. Perfil & Meus B.O.s</option>
+                    <option value="sensors">🧬 7. Laboratório de Sensores/GPS</option>
+                </select>
+            </div>
+
+            <!-- Inner App Light/Dark Theme Switcher -->
+            <button onclick="toggleAppTheme()" id="btn-theme-toggle" title="Alternar Tema Claro/Escuro no Celular" class="w-9 h-9 rounded-xl bg-mystic border border-mystic-border flex items-center justify-center text-pearl hover:text-white transition shadow">
+                <i class="fa-solid fa-moon text-xs" id="theme-icon"></i>
+            </button>
+
+            <!-- Test Emergency Trigger -->
+            <button onclick="triggerEmergencyAlert()" title="Disparar Alerta Sonoro de Teste" class="px-3 py-1.5 bg-inferno hover:bg-inferno-bright text-pearl font-extrabold text-xs rounded-xl shadow border border-inferno-bright flex items-center gap-1.5">
+                <i class="fa-solid fa-bell text-xs animate-bounce"></i>
+                <span class="hidden sm:inline">Testar Alerta</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- CENTERPIECE: SMARTPHONE MOCKUP -->
+    <main class="phone-wrapper my-auto flex justify-center items-center w-full">
+        
+        <div id="phone-container" class="phone-mockup app-theme-dark flex flex-col justify-between relative">
+            
+            <!-- Dynamic Island Notch Hardware -->
+            <div class="phone-dynamic-island">
+                <div class="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-700"></div>
+                <div class="w-2 h-2 rounded-full bg-blue-900/60 animate-pulse"></div>
+            </div>
+
+            <!-- Phone Top Status Bar -->
+            <div class="pt-8 px-6 pb-2 flex justify-between items-center text-[10px] font-bold z-40 border-b border-white/5 opacity-90">
+                <span id="phone-clock">20:21</span>
+                <div class="flex space-x-1.5 items-center">
+                    <span class="text-[9px] font-mono opacity-70">5G</span>
+                    <i class="fa-solid fa-signal text-[9px]"></i>
+                    <i class="fa-solid fa-wifi text-[9px]"></i>
+                    <i class="fa-solid fa-battery-full text-emerald-400 text-[10px]"></i>
+                </div>
+            </div>
+
+            <!-- Phone Dynamic Screen Header / Navigation Bar -->
+            <div id="phone-app-bar" class="px-4 py-2 border-b border-white/10 flex items-center justify-between z-40 bg-mystic/40 backdrop-blur-md">
+                <div class="flex items-center space-x-2">
+                    <button id="phone-back-btn" onclick="goBackScreen()" class="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-pearl text-xs hidden">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <div id="phone-bar-title" class="text-xs font-black tracking-wide flex items-center gap-1.5">
+                        <!-- Dynamic Title -->
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="loadPhoneScreen('profile')" class="w-7 h-7 rounded-full bg-inferno border border-pearl/30 flex items-center justify-center text-pearl text-xs font-bold">
+                        <span id="bar-user-avatar">US</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- APP MAIN INNER CONTENT AREA (Scrollable) -->
+            <div id="phone-screen-area" class="px-3.5 py-2 flex-1 overflow-y-auto phone-screen-content z-30 space-y-3">
+                <!-- Screen Content Rendered via JS -->
+            </div>
+
+            <!-- Phone Bottom Tab Navigation Bar -->
+            <div id="phone-bottom-nav" class="p-2 bg-mystic border-t border-mystic-border grid grid-cols-5 gap-1 text-center text-pearl-muted z-40">
+                <button onclick="loadPhoneScreen('home')" class="phone-tab-btn flex flex-col items-center py-1 rounded-lg" id="tab-app-home">
+                    <i class="fa-solid fa-house text-xs"></i>
+                    <span class="text-[8px] font-bold mt-1">Início</span>
+                </button>
+                <button onclick="loadPhoneScreen('cases')" class="phone-tab-btn flex flex-col items-center py-1 rounded-lg" id="tab-app-cases">
+                    <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                    <span class="text-[8px] font-bold mt-1">Busca</span>
+                </button>
+                <button onclick="loadPhoneScreen('form')" class="phone-tab-btn flex flex-col items-center py-1 rounded-lg" id="tab-app-form">
+                    <i class="fa-solid fa-circle-plus text-xs"></i>
+                    <span class="text-[8px] font-bold mt-1">Novo B.O.</span>
+                </button>
+                <button onclick="loadPhoneScreen('sensors')" class="phone-tab-btn flex flex-col items-center py-1 rounded-lg" id="tab-app-sensors">
+                    <i class="fa-solid fa-microchip text-xs"></i>
+                    <span class="text-[8px] font-bold mt-1">Sensores</span>
+                </button>
+                <button onclick="loadPhoneScreen('profile')" class="phone-tab-btn flex flex-col items-center py-1 rounded-lg" id="tab-app-profile">
+                    <i class="fa-solid fa-user-shield text-xs"></i>
+                    <span class="text-[8px] font-bold mt-1">Perfil</span>
+                </button>
+            </div>
+
+            <!-- Phone Bottom Home Bar Line -->
+            <div class="w-32 h-1 bg-white/30 rounded-full mx-auto my-1.5 z-50"></div>
+
+            <!-- INNER SMARTPHONE FULL CASE MODAL -->
+            <div id="phone-modal" class="absolute inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex flex-col justify-end p-3">
+                <div class="bg-mystic border border-mystic-border rounded-3xl p-4 space-y-3 text-pearl relative shadow-2xl max-h-[90%] overflow-y-auto">
+                    <button onclick="closePhoneModal()" class="absolute top-3 right-3 w-7 h-7 rounded-full bg-mystic-dark border border-mystic-border flex items-center justify-center text-pearl">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                    <div id="phone-modal-content"></div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- FOOTER INFO -->
+    <footer class="w-full max-w-4xl text-center py-2 text-[11px] text-pearl-muted">
+        <p>Projeto UI/UX Mobile • Engenharia da Computação (FHO) • Desenvolvido por Caroline, Emilly e Marcela</p>
+    </footer>
+
+    <!-- SCRIPT & INTERACTIVE LOGIC -->
+    <script>
+        // Global App State
+        let currentScreen = 'home';
+        let previousScreen = 'home';
+        let appTheme = 'dark';
+        let sensorChartInstance = null;
+        let sensorInterval = null;
+
+        // Current User Profile State
+        const currentUser = {
+            name: "Dr. Roberto Silva",
+            email: "roberto.silva@fho.edu.br",
+            role: "Responsável Cadastrado",
+            city: "Araras, SP",
+            verifiedBOs: ["BO-2026-984123"],
+            gpsGranted: true,
+            cameraGranted: true
+        };
+
+        // Sample Missing Children Cases Data (Araras-SP & Region)
+        const childrenCases = [
+            {
+                id: 1,
+                name: "Pedro Santos",
+                age: "8 anos",
+                city: "Araras, SP",
+                neighborhood: "Centro (Praça Barão)",
+                missingSince: "Hoje às 16:30",
+                boNumber: "BO-2026-984123",
+                status: "B.O. Validado pela Polícia",
+                clothing: "Camisa azul listrada, bermuda jeans e tênis preto",
+                description: "Visto por último próximo à Praça Barão de Araras. Possui uma pequena cicatriz no braço esquerdo.",
+                photoBg: "from-blue-900 to-mystic",
+                initials: "PS",
+                urgent: true
+            },
+            {
+                id: 2,
+                name: "Maria Lima",
+                age: "5 anos",
+                city: "Leme, SP",
+                neighborhood: "Bairro Alto",
+                missingSince: "Ontem às 14:00",
+                boNumber: "BO-2026-771209",
+                status: "B.O. Validado pela Polícia",
+                clothing: "Vestido rosa com estampas de flores, sandálias amarelas",
+                description: "Desapareceu nas proximidades da escola primária municipal.",
+                photoBg: "from-purple-900 to-mystic",
+                initials: "ML",
+                urgent: false
+            },
+            {
+                id: 3,
+                name: "Lucas Oliveira",
+                age: "10 anos",
+                city: "Rio Claro, SP",
+                neighborhood: "Jardim Claret",
+                missingSince: "20/10/2026 às 11:20",
+                boNumber: "BO-2026-554311",
+                status: "B.O. Validado pela Polícia",
+                clothing: "Camiseta vermelha, calça moletom cinza e boné preto",
+                description: "Estava andando de bicicleta perto do parque da cidade.",
+                photoBg: "from-amber-900 to-mystic",
+                initials: "LO",
+                urgent: false
+            }
+        ];
+
+        // Screen Titles
+        const screenTitles = {
+            home: '<i class="fa-solid fa-hands-holding-child text-pearl"></i> <span class="text-pearl font-bold">Início & Emergência</span>',
+            login: '<i class="fa-solid fa-right-to-bracket text-pearl"></i> <span class="text-pearl font-bold">Autenticação</span>',
+            register: '<i class="fa-solid fa-user-plus text-pearl"></i> <span class="text-pearl font-bold">Novo Cadastro</span>',
+            form: '<i class="fa-solid fa-file-circle-plus text-pearl"></i> <span class="text-pearl font-bold">Registrar Desaparecimento</span>',
+            cases: '<i class="fa-solid fa-magnifying-glass-location text-pearl"></i> <span class="text-pearl font-bold">Casos em Busca</span>',
+            profile: '<i class="fa-solid fa-id-card text-pearl"></i> <span class="text-pearl font-bold">Perfil & B.O.s</span>',
+            sensors: '<i class="fa-solid fa-microchip text-emerald-400"></i> <span class="text-pearl font-bold">Lab de Sensores PDM</span>'
+        };
+
+        // Toast Notification Display
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgClass = "bg-mystic border-mystic-border text-pearl";
+            if (type === 'success') bgClass = "bg-emerald-900 border-emerald-500 text-white";
+            if (type === 'danger') bgClass = "bg-inferno border-inferno-bright text-pearl-light";
+
+            toast.className = `${bgClass} border p-3 rounded-xl shadow-2xl text-xs flex items-center space-x-2 animate-bounce transition-all duration-300 pointer-events-auto`;
+            toast.innerHTML = `<i class="fa-solid fa-circle-info"></i><span>${message}</span>`;
+            
+            container.appendChild(toast);
+            setTimeout(() => { toast.remove(); }, 3200);
+        }
+
+        // Clock Updater for Phone
+        function updatePhoneClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('phone-clock').innerText = `${hours}:${minutes}`;
+        }
+        setInterval(updatePhoneClock, 1000);
+
+        // Toggle App Theme inside phone (Dark / Light)
+        function toggleAppTheme() {
+            const phone = document.getElementById('phone-container');
+            const icon = document.getElementById('theme-icon');
+
+            if (appTheme === 'dark') {
+                appTheme = 'light';
+                phone.className = "phone-mockup app-theme-light flex flex-col justify-between relative";
+                icon.className = "fa-solid fa-sun text-amber-400 text-xs";
+                showToast("Modo Claro ativado no aplicativo.");
+            } else {
+                appTheme = 'dark';
+                phone.className = "phone-mockup app-theme-dark flex flex-col justify-between relative";
+                icon.className = "fa-solid fa-moon text-xs";
+                showToast("Modo Escuro ativado no aplicativo.");
+            }
+        }
+
+        // Trigger Emergency Test Audio / Alert
+        function triggerEmergencyAlert() {
+            showToast("🚨 ALERTA DE EMERGÊNCIA: Novo caso registrado em Araras-SP!", "danger");
+            loadPhoneScreen('home');
+        }
+
+        // Go Back Navigation
+        function goBackScreen() {
+            loadPhoneScreen(previousScreen);
+        }
+
+        // Primary Screen Switcher
+        function loadPhoneScreen(screen) {
+            clearInterval(sensorInterval);
+            previousScreen = currentScreen;
+            currentScreen = screen;
+
+            // Sync Dropdown Selector
+            const selector = document.getElementById('screen-selector');
+            if (selector) selector.value = screen;
+
+            // Update Phone App Bar Title & Back Button
+            document.getElementById('phone-bar-title').innerHTML = screenTitles[screen] || 'Aplicativo';
+            const backBtn = document.getElementById('phone-back-btn');
+            if (screen !== 'home') {
+                backBtn.classList.remove('hidden');
+            } else {
+                backBtn.classList.add('hidden');
+            }
+
+            // Update Active Tab Bar Highlights
+            document.querySelectorAll('.phone-tab-btn').forEach(btn => {
+                btn.className = 'phone-tab-btn flex flex-col items-center py-1 rounded-lg text-pearl-muted';
+            });
+            const activeTab = document.getElementById(`tab-app-${screen}`);
+            if (activeTab) {
+                activeTab.className = 'phone-tab-btn flex flex-col items-center py-1 rounded-lg text-pearl font-extrabold bg-white/5';
+            }
+
+            const area = document.getElementById('phone-screen-area');
+
+            // ------------------ SCREEN 1: HOME & EMERGENCY ------------------
+            if (screen === 'home') {
+                area.innerHTML = `
+                    <div class="space-y-3">
+                        
+                        <!-- EMERGENCY RED INFERNO BANNER -->
+                        <div class="bg-inferno border border-inferno-bright p-3.5 rounded-2xl text-pearl-light shadow-xl space-y-2.5 emergency-pulse">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-1.5">
+                                    <i class="fa-solid fa-triangle-exclamation text-pearl animate-pulse text-base"></i>
+                                    <span class="text-xs font-black uppercase tracking-wider">Alerta de Emergência</span>
+                                </div>
+                                <span class="text-[9px] bg-black/50 px-2 py-0.5 rounded text-pearl font-mono border border-pearl/20">LIGUE 190</span>
+                            </div>
+                            <p class="text-[10px] text-pearl/90 leading-relaxed font-medium">
+                                Desaparecimento recente? As primeiras horas são decisivas. Entre em contato direto com os canais policiais oficiais.
+                            </p>
+                            <div class="grid grid-cols-2 gap-2 pt-1">
+                                <a href="tel:190" onclick="showToast('Iniciando ligação para Polícia Militar (190)...', 'danger')" class="py-2 bg-pearl text-inferno-dark font-black text-center text-[11px] rounded-xl shadow-lg block hover:brightness-110">
+                                    <i class="fa-solid fa-phone mr-1"></i> Polícia 190
+                                </a>
+                                <a href="tel:181" onclick="showToast('Iniciando ligação para Disque Denúncia (181)...', 'danger')" class="py-2 bg-inferno-bright border border-pearl/30 text-pearl font-bold text-center text-[11px] rounded-xl block">
+                                    <i class="fa-solid fa-shield-cat mr-1"></i> Pistas 181
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- QUICK ACTION CARDS -->
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="loadPhoneScreen('form')" class="bg-mystic/90 border border-mystic-border hover:border-pearl p-3 rounded-2xl text-left space-y-1 shadow">
+                                <div class="w-8 h-8 rounded-xl bg-pearl/10 flex items-center justify-center text-pearl text-xs border border-pearl/20">
+                                    <i class="fa-solid fa-file-circle-plus"></i>
+                                </div>
+                                <span class="text-xs font-extrabold block text-pearl">Registrar Caso</span>
+                                <span class="text-[9px] text-pearl-muted block">Com B.O. Obrigatório</span>
+                            </button>
+
+                            <button onclick="loadPhoneScreen('cases')" class="bg-mystic/90 border border-mystic-border hover:border-pearl p-3 rounded-2xl text-left space-y-1 shadow">
+                                <div class="w-8 h-8 rounded-xl bg-pearl/10 flex items-center justify-center text-pearl text-xs border border-pearl/20">
+                                    <i class="fa-solid fa-magnifying-glass-location"></i>
+                                </div>
+                                <span class="text-xs font-extrabold block text-pearl">Buscar Crianças</span>
+                                <span class="text-[9px] text-pearl-muted block">Filtrar Região Araras</span>
+                            </button>
+                        </div>
+
+                        <!-- RECENT VERIFIED ALERTS FEED -->
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center px-1">
+                                <h4 class="text-xs font-black text-pearl flex items-center gap-1.5">
+                                    <i class="fa-solid fa-bullhorn text-inferno-bright"></i> Alertas Ativos
+                                </h4>
+                                <span class="text-[9px] text-pearl-muted font-mono">Araras & Região</span>
+                            </div>
+
+                            ${childrenCases.map(c => `
+                                <div onclick="openPhoneCaseModal(${c.id})" class="bg-mystic/80 p-2.5 rounded-2xl border border-mystic-border flex items-center space-x-2.5 cursor-pointer hover:border-pearl transition shadow">
+                                    <div class="w-11 h-11 rounded-xl bg-gradient-to-tr ${c.photoBg} flex-shrink-0 flex items-center justify-center text-pearl font-black text-xs border border-pearl/30">
+                                        ${c.initials}
+                                    </div>
+                                    <div class="text-[10px] flex-1">
+                                        <div class="flex justify-between items-start">
+                                            <strong class="text-pearl font-bold text-xs">${c.name} (${c.age})</strong>
+                                            <span class="text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono font-bold">B.O. OK</span>
+                                        </div>
+                                        <p class="text-pearl-muted text-[9px]">${c.city} • ${c.neighborhood}</p>
+                                        <p class="text-[8px] text-pearl/70">${c.missingSince}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                    </div>
+                `;
+
+            // ------------------ SCREEN 2: LOGIN ------------------
+            } else if (screen === 'login') {
+                area.innerHTML = `
+                    <div class="space-y-4 pt-2">
+                        <div class="text-center space-y-1">
+                            <div class="w-12 h-12 rounded-2xl bg-inferno border border-pearl/20 mx-auto flex items-center justify-center text-pearl text-xl shadow-lg">
+                                <i class="fa-solid fa-hands-holding-child"></i>
+                            </div>
+                            <h3 class="text-sm font-extrabold text-pearl">Acessar o Sistema</h3>
+                            <p class="text-[10px] text-pearl-muted">Crianças Desaparecidas • Apoio e Busca</p>
+                        </div>
+
+                        <div class="space-y-2.5 text-xs">
+                            <div>
+                                <label class="text-[10px] text-pearl-muted block mb-1">E-mail ou CPF</label>
+                                <input type="email" value="roberto.silva@fho.edu.br" class="w-full bg-mystic border border-mystic-border rounded-xl p-2.5 text-pearl text-xs focus:outline-none focus:border-pearl">
+                            </div>
+
+                            <div>
+                                <label class="text-[10px] text-pearl-muted block mb-1">Senha de Acesso</label>
+                                <input type="password" value="••••••••" class="w-full bg-mystic border border-mystic-border rounded-xl p-2.5 text-pearl text-xs focus:outline-none focus:border-pearl">
+                            </div>
+
+                            <div class="flex items-center justify-between text-[9px] text-pearl-muted">
+                                <label class="flex items-center gap-1 cursor-pointer">
+                                    <input type="checkbox" checked class="rounded accent-pearl"> Manter conectado
+                                </label>
+                                <a href="#" onclick="showToast('Link de recuperação enviado ao seu e-mail.')" class="text-pearl hover:underline">Esqueceu a senha?</a>
+                            </div>
+
+                            <button onclick="showToast('Login efetuado com sucesso!', 'success'); loadPhoneScreen('home');" class="w-full py-2.5 bg-pearl hover:bg-pearl-dark text-mystic-dark font-extrabold rounded-xl text-xs transition shadow-lg">
+                                Entrar no Aplicativo
+                            </button>
+
+                            <button onclick="loadPhoneScreen('register')" class="w-full py-2 bg-mystic border border-mystic-border text-pearl font-bold rounded-xl text-xs transition">
+                                Criar Nova Conta / Responsável
+                            </button>
+
+                            <div class="relative flex py-1 items-center">
+                                <div class="flex-grow border-t border-mystic-border"></div>
+                                <span class="flex-shrink mx-2 text-[9px] text-pearl-muted">ou entre com</span>
+                                <div class="flex-grow border-t border-mystic-border"></div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <button onclick="showToast('Autenticando via Gov.br...')" class="py-2 bg-mystic border border-mystic-border rounded-xl text-[10px] font-bold text-pearl flex items-center justify-center gap-1.5">
+                                    <i class="fa-solid fa-building-columns text-pearl"></i> Gov.br
+                                </button>
+                                <button onclick="showToast('Autenticando via Google...')" class="py-2 bg-mystic border border-mystic-border rounded-xl text-[10px] font-bold text-pearl flex items-center justify-center gap-1.5">
+                                    <i class="fa-brands fa-google text-pearl"></i> Google
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+            // ------------------ SCREEN 3: REGISTER ------------------
+            } else if (screen === 'register') {
+                area.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="text-center space-y-1">
+                            <h3 class="text-sm font-extrabold text-pearl">Cadastro de Responsável</h3>
+                            <p class="text-[10px] text-pearl-muted">Crie sua conta para registrar ocorrências</p>
+                        </div>
+
+                        <form onsubmit="handleRegister(event)" class="space-y-2 text-[10px]">
+                            <div>
+                                <label class="text-pearl-muted block mb-0.5">Nome Completo *</label>
+                                <input type="text" required placeholder="Ex: Maria Oliveira" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none focus:border-pearl">
+                            </div>
+
+                            <div>
+                                <label class="text-pearl-muted block mb-0.5">CPF do Responsável *</label>
+                                <input type="text" required placeholder="000.000.000-00" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none focus:border-pearl">
+                            </div>
+
+                            <div>
+                                <label class="text-pearl-muted block mb-0.5">E-mail Principal *</label>
+                                <input type="email" required placeholder="seuemail@exemplo.com" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none focus:border-pearl">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="text-pearl-muted block mb-0.5">Telefone / WhatsApp *</label>
+                                    <input type="tel" required placeholder="(19) 99999-0000" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="text-pearl-muted block mb-0.5">Cidade *</label>
+                                    <input type="text" required value="Araras, SP" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none">
+                                </div>
+                            </div>
+
+                            <div class="bg-mystic/60 p-2.5 rounded-xl border border-mystic-border text-[8px] text-pearl-muted space-y-1">
+                                <label class="flex items-start gap-1.5 cursor-pointer">
+                                    <input type="checkbox" required checked class="mt-0.5 accent-pearl">
+                                    <span>Concordo com os <strong>Termos de Uso, LGPD e ECA</strong> para divulgação responsável de dados investigativos.</span>
+                                </label>
+                            </div>
+
+                            <button type="submit" class="w-full py-2.5 bg-pearl text-mystic-dark font-extrabold rounded-xl text-xs transition shadow-lg mt-2">
+                                Finalizar Cadastro
+                            </button>
+                        </form>
+                    </div>
+                `;
+
+            // ------------------ SCREEN 4: FORM / REGISTER CASE ------------------
+            } else if (screen === 'form') {
+                area.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between border-b border-mystic-border pb-1">
+                            <h3 class="text-xs font-extrabold text-pearl"><i class="fa-solid fa-file-pen text-pearl mr-1"></i> Reportar Ocorrência</h3>
+                            <span class="text-[8px] bg-inferno px-1.5 py-0.5 rounded text-pearl font-bold">*BO Obrigatório</span>
+                        </div>
+
+                        <form onsubmit="handleFormSubmit(event)" class="space-y-2 text-[10px]">
+                            
+                            <!-- Mandatory BO Field Box -->
+                            <div class="bg-inferno/20 border border-inferno-bright p-2.5 rounded-2xl space-y-1">
+                                <label class="text-pearl font-black block text-[10px]">Nº Boletim de Ocorrência (B.O.) *</label>
+                                <input type="text" id="input-bo" required placeholder="Ex: BO-2026-998877" class="w-full bg-mystic border border-inferno-bright rounded-xl p-2 text-pearl font-mono text-xs focus:outline-none">
+                                <span class="text-[8px] text-pearl-muted block">A divulgação pública só ocorre após checagem oficial.</span>
+                            </div>
+
+                            <div>
+                                <label class="text-pearl-muted block mb-0.5">Nome Completo da Criança *</label>
+                                <input type="text" id="input-name" required placeholder="Ex: Gabriel Souza" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="text-pearl-muted block mb-0.5">Idade *</label>
+                                    <input type="text" id="input-age" required placeholder="Ex: 7 anos" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="text-pearl-muted block mb-0.5">Cidade / UF *</label>
+                                    <input type="text" id="input-city" required value="Araras, SP" class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="text-pearl-muted block mb-0.5">Roupas / Traços Físicos</label>
+                                <textarea id="input-clothing" rows="2" placeholder="Descreva roupas, cor de cabelo, cicatrizes..." class="w-full bg-mystic border border-mystic-border rounded-xl p-2 text-pearl focus:outline-none"></textarea>
+                            </div>
+
+                            <!-- Photo Selector Mock -->
+                            <div class="border border-dashed border-mystic-border p-2.5 rounded-2xl text-center cursor-pointer hover:border-pearl bg-white/5" onclick="showToast('Simulação: Fotografia capturada!')">
+                                <i class="fa-solid fa-camera text-pearl text-base mb-0.5 block"></i>
+                                <span class="text-[9px] text-pearl font-bold block">Anexar Fotografia Recente</span>
+                                <span class="text-[8px] text-pearl-muted block">Toque para abrir a galeria ou câmera</span>
+                            </div>
+
+                            <!-- GPS Location Mock -->
+                            <div class="bg-mystic p-2 rounded-xl border border-mystic-border flex items-center justify-between">
+                                <div class="flex items-center space-x-2">
+                                    <i class="fa-solid fa-location-dot text-inferno-bright text-xs"></i>
+                                    <div>
+                                        <span class="text-[9px] font-bold text-pearl block">GPS do Dispositivo</span>
+                                        <span class="text-[8px] text-pearl-muted block">Araras (-22.357, -47.384)</span>
+                                    </div>
+                                </div>
+                                <button type="button" onclick="showToast('GPS obtido com alta precisão!')" class="text-[8px] bg-pearl text-mystic-dark font-bold px-2 py-1 rounded-lg">Capturar</button>
+                            </div>
+
+                            <button type="submit" class="w-full py-2.5 bg-pearl text-mystic-dark font-extrabold rounded-xl text-xs transition shadow-lg mt-1">
+                                Registrar Caso e Validar B.O.
+                            </button>
+                        </form>
+                    </div>
+                `;
+
+            // ------------------ SCREEN 5: CASES SEARCH ------------------
+            } else if (screen === 'cases') {
+                area.innerHTML = `
+                    <div class="space-y-2.5">
+                        <!-- Search & Filter Header -->
+                        <div class="space-y-2">
+                            <div class="relative">
+                                <input type="text" placeholder="Buscar por nome ou B.O..." class="w-full bg-mystic border border-mystic-border rounded-xl pl-8 pr-3 py-2 text-pearl text-xs focus:outline-none focus:border-pearl">
+                                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-pearl-muted text-xs"></i>
+                            </div>
+
+                            <div class="flex space-x-1 overflow-x-auto pb-1 text-[8px] no-scrollbar">
+                                <button class="bg-pearl text-mystic-dark font-extrabold px-2.5 py-1 rounded-lg">Todos</button>
+                                <button class="bg-mystic text-pearl-muted px-2.5 py-1 rounded-lg border border-mystic-border">Araras (1)</button>
+                                <button class="bg-mystic text-pearl-muted px-2.5 py-1 rounded-lg border border-mystic-border">Leme (1)</button>
+                                <button class="bg-mystic text-pearl-muted px-2.5 py-1 rounded-lg border border-mystic-border">Rio Claro (1)</button>
+                            </div>
+                        </div>
+
+                        <!-- Cases List Cards -->
+                        <div class="space-y-2">
+                            ${childrenCases.map(c => `
+                                <div class="bg-mystic border border-mystic-border p-3 rounded-2xl space-y-2 shadow">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr ${c.photoBg} flex items-center justify-center text-pearl font-black text-sm border border-pearl/30 flex-shrink-0">
+                                            ${c.initials}
+                                        </div>
+                                        <div class="text-[10px] flex-1">
+                                            <div class="flex justify-between items-start">
+                                                <h4 class="font-extrabold text-pearl text-xs">${c.name}</h4>
+                                                <span class="text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono font-bold">Validado</span>
+                                            </div>
+                                            <p class="text-pearl-muted">${c.age} • ${c.city}</p>
+                                            <p class="text-[8px] text-pearl/70 font-mono">B.O: ${c.boNumber}</p>
+                                        </div>
+                                    </div>
+
+                                    <p class="text-[9px] text-pearl/90 line-clamp-2 bg-black/30 p-2 rounded-xl border border-white/5">
+                                        "${c.description}"
+                                    </p>
+
+                                    <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+                                        <button onclick="openPhoneCaseModal(${c.id})" class="py-1.5 bg-mystic-light text-pearl font-bold text-[9px] rounded-xl border border-mystic-border">
+                                            <i class="fa-solid fa-address-card mr-1"></i> Ver Perfil
+                                        </button>
+                                        <a href="tel:181" onclick="showToast('Redirecionando para Disque Denúncia 181...')" class="py-1.5 bg-inferno text-pearl font-bold text-center text-[9px] rounded-xl block">
+                                            <i class="fa-solid fa-phone-volume mr-1"></i> Pista (181)
+                                        </a>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+
+            // ------------------ SCREEN 6: USER PROFILE & BO HISTORY ------------------
+            } else if (screen === 'profile') {
+                area.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="bg-mystic border border-mystic-border p-3.5 rounded-2xl space-y-3 text-center">
+                            <div class="w-14 h-14 rounded-full bg-inferno border-2 border-pearl/40 mx-auto flex items-center justify-center text-pearl text-xl font-black shadow-lg">
+                                RS
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-black text-pearl">${currentUser.name}</h3>
+                                <p class="text-[10px] text-pearl-muted">${currentUser.email}</p>
+                                <span class="inline-block mt-1 text-[8px] bg-pearl/10 text-pearl px-2 py-0.5 rounded-full border border-pearl/20 font-bold">
+                                    ${currentUser.role}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- User Registered BOs -->
+                        <div class="space-y-1.5">
+                            <h4 class="text-xs font-bold text-pearl flex items-center gap-1.5">
+                                <i class="fa-solid fa-folder-open text-pearl"></i> Meus Registros de B.O.
+                            </h4>
+                            <div class="bg-mystic border border-mystic-border p-2.5 rounded-xl flex items-center justify-between text-[10px]">
+                                <div>
+                                    <strong class="text-pearl block">BO-2026-984123</strong>
+                                    <span class="text-pearl-muted text-[8px]">Pedro Santos • Araras, SP</span>
+                                </div>
+                                <span class="text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded font-bold">Ativo</span>
+                            </div>
+                        </div>
+
+                        <!-- App Permissions -->
+                        <div class="space-y-1.5">
+                            <h4 class="text-xs font-bold text-pearl flex items-center gap-1.5">
+                                <i class="fa-solid fa-sliders text-pearl"></i> Permissões do Dispositivo
+                            </h4>
+                            <div class="bg-mystic border border-mystic-border p-2.5 rounded-xl space-y-2 text-[10px]">
+                                <div class="flex justify-between items-center">
+                                    <span class="text-pearl">Acesso ao GPS de Alta Precisão</span>
+                                    <input type="checkbox" checked class="accent-emerald-500">
+                                </div>
+                                <div class="flex justify-between items-center border-t border-mystic-border/50 pt-1.5">
+                                    <span class="text-pearl">Acesso à Câmera para Anexar Fotos</span>
+                                    <input type="checkbox" checked class="accent-emerald-500">
+                                </div>
+                            </div>
+                        </div>
+
+                        <button onclick="loadPhoneScreen('login'); showToast('Sessão encerrada.');" class="w-full py-2 bg-inferno/40 hover:bg-inferno text-pearl font-bold rounded-xl text-xs transition border border-inferno-bright">
+                            Sair do Aplicativo
+                        </button>
+                    </div>
+                `;
+
+            // ------------------ SCREEN 7: SENSORS & GPS LAB ------------------
+            } else if (screen === 'sensors') {
+                area.innerHTML = `
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between border-b border-mystic-border pb-1">
+                            <h3 class="text-xs font-bold text-pearl"><i class="fa-solid fa-microchip text-emerald-400 mr-1"></i> Sensores & GPS (PDM)</h3>
+                            <span class="text-[8px] bg-emerald-950 text-emerald-400 font-mono px-1.5 py-0.5 rounded border border-emerald-500/40">Leitura Ativa</span>
+                        </div>
+
+                        <p class="text-[9px] text-pearl-muted">Simulação ao vivo dos vetores de movimento do smartphone para a disciplina de Dispositivos Móveis (FHO).</p>
+
+                        <!-- Chart Canvas -->
+                        <div class="bg-black/50 p-2 rounded-2xl border border-mystic-border">
+                            <canvas id="liveSensorChart" class="w-full h-28"></canvas>
+                        </div>
+
+                        <!-- Live Vector Values -->
+                        <div class="grid grid-cols-3 gap-1.5 text-center text-[9px] font-mono">
+                            <div class="bg-mystic p-2 rounded-xl border border-mystic-border">
+                                <span class="text-pearl-muted block text-[8px]">Eixo X</span>
+                                <span id="val-x" class="text-pearl font-bold">0.12</span>
+                            </div>
+                            <div class="bg-mystic p-2 rounded-xl border border-mystic-border">
+                                <span class="text-pearl-muted block text-[8px]">Eixo Y</span>
+                                <span id="val-y" class="text-emerald-400 font-bold">9.81</span>
+                            </div>
+                            <div class="bg-mystic p-2 rounded-xl border border-mystic-border">
+                                <span class="text-pearl-muted block text-[8px]">Eixo Z</span>
+                                <span id="val-z" class="text-purple-400 font-bold">0.05</span>
+                            </div>
+                        </div>
+
+                        <!-- Gyroscope & GPS readouts -->
+                        <div class="bg-mystic p-2.5 rounded-2xl border border-mystic-border text-[9px] space-y-1">
+                            <div class="flex justify-between text-pearl">
+                                <span><i class="fa-solid fa-compass text-pearl mr-1"></i> Giroscópio:</span>
+                                <span class="font-mono text-pearl-muted">Pitch: 12° | Roll: -4°</span>
+                            </div>
+                            <div class="flex justify-between text-pearl border-t border-mystic-border/50 pt-1">
+                                <span><i class="fa-solid fa-location-crosshairs text-emerald-400 mr-1"></i> Precisão GPS:</span>
+                                <span class="font-mono text-emerald-400">3 metros (Araras-SP)</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                setTimeout(initLiveSensorChart, 100);
+            }
+        }
+
+        // Handle Registration
+        function handleRegister(e) {
+            e.preventDefault();
+            showToast('Conta de responsável cadastrada com sucesso!', 'success');
+            loadPhoneScreen('home');
+        }
+
+        // Handle Case Registration
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            const bo = document.getElementById('input-bo').value;
+            const name = document.getElementById('input-name').value;
+            const age = document.getElementById('input-age').value;
+            const city = document.getElementById('input-city').value;
+            const clothing = document.getElementById('input-clothing').value;
+
+            const newCase = {
+                id: childrenCases.length + 1,
+                name: name,
+                age: age,
+                city: city,
+                neighborhood: "Centro",
+                missingSince: "Recém registrado",
+                boNumber: bo,
+                status: "B.O. Validado pela Polícia",
+                clothing: clothing,
+                description: `Características: ${clothing}`,
+                photoBg: "from-emerald-900 to-mystic",
+                initials: name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+            };
+
+            childrenCases.unshift(newCase);
+            showToast('Ocorrência registrada com sucesso!', 'success');
+            loadPhoneScreen('cases');
+        }
+
+        // Modal for Phone Screen Details
+        function openPhoneCaseModal(caseId) {
+            const item = childrenCases.find(c => c.id === caseId);
+            if (!item) return;
+
+            const modalContent = document.getElementById('phone-modal-content');
+            modalContent.innerHTML = `
+                <div class="text-center space-y-2">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr ${item.photoBg} border-2 border-pearl/30 mx-auto flex items-center justify-center text-pearl font-black text-xl shadow-xl">
+                        ${item.initials}
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-black text-pearl">${item.name}</h3>
+                        <p class="text-[10px] text-pearl-muted">${item.age} • ${item.city} (${item.neighborhood})</p>
+                        <span class="inline-block mt-1 text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded font-mono font-bold">
+                            BO: ${item.boNumber}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="bg-mystic-dark p-2.5 rounded-xl border border-mystic-border text-[10px] space-y-1.5">
+                    <div>
+                        <strong class="text-pearl block text-[9px] uppercase font-bold text-pearl-muted">Desaparecido desde:</strong>
+                        <p class="text-pearl">${item.missingSince}</p>
+                    </div>
+                    <div>
+                        <strong class="text-pearl block text-[9px] uppercase font-bold text-pearl-muted">Roupas e Descrição:</strong>
+                        <p class="text-pearl-muted leading-relaxed">${item.clothing}</p>
+                    </div>
+                </div>
+
+                <div class="space-y-1.5 pt-1">
+                    <a href="tel:181" onclick="showToast('Ligando para 181...')" class="w-full py-2 bg-inferno hover:bg-inferno-bright text-pearl font-bold rounded-xl text-xs text-center block shadow">
+                        <i class="fa-solid fa-phone-volume mr-1"></i> Enviar Pista Anônima (181)
+                    </a>
+                    <button onclick="showToast('Link de compartilhamento copiado!')" class="w-full py-1.5 bg-mystic-light border border-mystic-border text-pearl font-bold rounded-xl text-[10px] text-center block">
+                        <i class="fa-solid fa-share-nodes mr-1"></i> Compartilhar Alerta
+                    </button>
+                </div>
+            `;
+
+            document.getElementById('phone-modal').classList.remove('hidden');
+        }
+
+        function closePhoneModal() {
+            document.getElementById('phone-modal').classList.add('hidden');
+        }
+
+        // Chart JS Accelerometer Live Simulation
+        function initLiveSensorChart() {
+            const ctx = document.getElementById('liveSensorChart')?.getContext('2d');
+            if (!ctx) return;
+
+            const labels = Array.from({length: 12}, (_, i) => `${i}s`);
+            const dataX = Array.from({length: 12}, () => (Math.random() * 2 - 1).toFixed(2));
+            const dataY = Array.from({length: 12}, () => (9.8 + Math.random() * 0.4 - 0.2).toFixed(2));
+            const dataZ = Array.from({length: 12}, () => (Math.random() * 1.5 - 0.75).toFixed(2));
+
+            if (sensorChartInstance) {
+                sensorChartInstance.destroy();
+            }
+
+            sensorChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Eixo X', data: dataX, borderColor: '#E6D4C3', borderWidth: 1.5, pointRadius: 0, tension: 0.4 },
+                        { label: 'Eixo Y', data: dataY, borderColor: '#34d399', borderWidth: 1.5, pointRadius: 0, tension: 0.4 },
+                        { label: 'Eixo Z', data: dataZ, borderColor: '#c084fc', borderWidth: 1.5, pointRadius: 0, tension: 0.4 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: { display: false, min: -3, max: 12 }
+                    }
+                }
+            });
+
+            sensorInterval = setInterval(() => {
+                if (!sensorChartInstance) return;
+
+                const newX = (Math.random() * 3 - 1.5).toFixed(2);
+                const newY = (9.8 + Math.random() * 1.2 - 0.6).toFixed(2);
+                const newZ = (Math.random() * 2 - 1).toFixed(2);
+
+                sensorChartInstance.data.datasets[0].data.shift();
+                sensorChartInstance.data.datasets[0].data.push(newX);
+
+                sensorChartInstance.data.datasets[1].data.shift();
+                sensorChartInstance.data.datasets[1].data.push(newY);
+
+                sensorChartInstance.data.datasets[2].data.shift();
+                sensorChartInstance.data.datasets[2].data.push(newZ);
+
+                sensorChartInstance.update('none');
+
+                const elX = document.getElementById('val-x');
+                const elY = document.getElementById('val-y');
+                const elZ = document.getElementById('val-z');
+
+                if (elX) elX.innerText = newX;
+                if (elY) elY.innerText = newY;
+                if (elZ) elZ.innerText = newZ;
+            }, 350);
+        }
+
+        // Initialize App View On Load
+        window.onload = () => {
+            loadPhoneScreen('home');
+        };
+    </script>
+</body>
+</html>
