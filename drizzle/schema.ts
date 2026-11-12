@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, char } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -26,3 +26,23 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 // TODO: Add your tables here
+
+/** Contas locais acadêmicas: independentes do cadastro OAuth Manus. */
+export const guardiaoAccounts = mysqlTable("guardiao_accounts", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+  emailVerifiedAt: timestamp("emailVerifiedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const guardiaoSessions = mysqlTable("guardiao_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  accountId: int("accountId").notNull().references(() => guardiaoAccounts.id, { onDelete: "cascade" }),
+  tokenHash: char("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});

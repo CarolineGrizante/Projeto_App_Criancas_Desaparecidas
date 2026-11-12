@@ -1,9 +1,11 @@
+import { Accelerometer, Gyroscope } from "expo-sensors";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -17,8 +19,10 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { InteractiveMap, type MapCase, type MapCoordinate } from "@/components/interactive-map";
+import * as GuardiaoAuth from "@/lib/guardiao-auth";
+import { formatGuardiaoProfileDate } from "@/lib/guardiao-profile-date";
 
-type Screen = "login" | "signup" | "verify" | "forgot" | "gov" | "feed" | "wizard";
+type Screen = "login" | "signup" | "verify" | "forgot" | "gov" | "feed" | "wizard" | "sensors" | "case_detail" | "profile";
 type Radius = 5 | 15 | 50;
 type WizardStep = 1 | 2 | 3;
 type NoticeType = "success" | "error" | "info";
@@ -193,7 +197,11 @@ function ScreenFrame({ children, onBack, backLabel }: { children: ReactNode; onB
   );
 }
 
-function LoginScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
+function LoginScreen({ onNavigate, onLogin, externalError }: {
+  onNavigate: (screen: Screen) => void;
+  onLogin: () => void;
+  externalError?: string | null;
+}) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -202,13 +210,13 @@ function LoginScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
   const [identifierError, setIdentifierError] = useState("");
   const [passwordError, setPasswordError] = useState("");
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setIdentifierError("");
     setPasswordError("");
     setNotice(undefined);
     let valid = true;
-    if (!identifier.trim()) {
-      setIdentifierError("Informe o e-mail ou CPF para continuar.");
+    if (!identifier.trim() || !identifier.includes("@")) {
+      setIdentifierError("Informe o e-mail cadastrado. O CPF ainda não está habilitado.");
       valid = false;
     }
     if (!password.trim()) {
@@ -216,12 +224,15 @@ function LoginScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
       valid = false;
     }
     if (!valid) return;
-
     setLoading(true);
-    setTimeout(() => {
+    try {
+      await GuardiaoAuth.loginAccount(identifier.trim(), password);
+      onLogin();
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Falha ao entrar." });
+    } finally {
       setLoading(false);
-      onNavigate("feed");
-    }, 700);
+    }
   };
 
   return (
@@ -241,10 +252,10 @@ function LoginScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
         <Text style={styles.cardDescription}>Use os seus dados para aceder ao protótipo do Guardião.</Text>
 
         <Field
-          label="E-MAIL OU CPF"
+          label="E-MAIL"
           value={identifier}
           onChangeText={setIdentifier}
-          placeholder="Digite o seu e-mail ou CPF"
+          placeholder="Digite o e-mail cadastrado"
           icon="person-outline"
           keyboardType="email-address"
           error={identifierError}
@@ -265,9 +276,12 @@ function LoginScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
           <Ionicons name="arrow-up-right-box" size={15} color={COLORS.lime} />
         </Pressable>
 
-        {notice && <NoticeBanner notice={notice} />}
+        {(notice || externalError) && <NoticeBanner notice={notice ?? {
+          type: /^(Palavra-passe atualizada|E-mail atualizado)/.test(externalError ?? "") ? "success" : "error",
+          message: externalError!,
+        }} />}
         <PrimaryButton onPress={handleLogin} loading={loading} icon="arrow-forward">
-          Entrar no protótipo
+          Entrar na minha conta
         </PrimaryButton>
 
         <View style={styles.dividerRow}>
@@ -301,8 +315,7 @@ function LoginScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
   );
 }
 
-
-function BottomNav({ active, onNavigate }: { active: "feed" | "wizard"; onNavigate: (screen: Screen) => void }) {
+function BottomNav({ active, onNavigate }: { active: "feed" | "wizard" | "sensors"; onNavigate: (screen: Screen) => void }) {
   return (
     <View style={styles.bottomNav}>
       <Pressable onPress={() => onNavigate("feed")} style={[styles.navItem, active === "feed" && styles.navItemActive]}>
@@ -312,6 +325,10 @@ function BottomNav({ active, onNavigate }: { active: "feed" | "wizard"; onNaviga
       <Pressable onPress={() => onNavigate("wizard")} style={[styles.navItem, active === "wizard" && styles.navItemActive]}>
         <Ionicons name="add-circle-outline" size={20} color={active === "wizard" ? COLORS.lime : COLORS.muted} />
         <Text style={[styles.navLabel, active === "wizard" && styles.navLabelActive]}>Notificar</Text>
+      </Pressable>
+      <Pressable onPress={() => onNavigate("sensors")} style={[styles.navItem, active === "sensors" && styles.navItemActive]}>
+        <Ionicons name="hardware-chip-outline" size={20} color={active === "sensors" ? COLORS.lime : COLORS.muted} />
+        <Text style={[styles.navLabel, active === "sensors" && styles.navLabelActive]}>Sensores</Text>
       </Pressable>
       <Pressable onPress={() => onNavigate("login")} style={styles.navItem}>
         <Ionicons name="log-out-outline" size={20} color={COLORS.muted} />
@@ -442,7 +459,7 @@ function AlertCard({ title, age, neighborhood, distance, time, color, status, ca
   );
 }
 
-function FeedScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
+function FeedScreen({ onNavigate }: { onNavigate: (screen: Screen, caseData?: DemoAlert) => void }) {
   const [radius, setRadius] = useState<Radius>(5);
   const [userLocation, setUserLocation] = useState<MapCoordinate>(FALLBACK_COORDINATE);
   const [locationPermission, setLocationPermission] = useState<"unknown" | "granted" | "denied">("unknown");
@@ -495,6 +512,11 @@ function FeedScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
         <Text style={styles.eyebrow}>CENTRAL DE ALERTAS</Text>
         <Text style={styles.title}>A comunidade está atenta.</Text>
         <Text style={styles.subtitle}>Veja somente os casos próximos da sua região. Informação responsável ajuda sem expor quem precisa de proteção.</Text>
+        <Pressable onPress={() => onNavigate("profile")} style={styles.profileAccess} accessibilityRole="button" accessibilityLabel="Abrir meu perfil">
+          <Ionicons name="person-circle-outline" size={19} color={COLORS.lime} />
+          <Text style={styles.profileAccessText}>Meu perfil</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.muted} />
+        </Pressable>
       </View>
 
       <View style={styles.feedStatusCard}>
@@ -524,7 +546,7 @@ function FeedScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
       />
 
       <View style={styles.alertList}>
-        {visibleAlerts.map((item) => <AlertCard key={item.id} {...item} onPress={() => setSelectedCaseId(item.id)} />)}
+        {visibleAlerts.map((item) => <AlertCard key={item.id} {...item} onPress={() => onNavigate("case_detail", item)} />)}
         {visibleAlerts.length === 0 && <View style={styles.emptyState}><Ionicons name="checkmark-circle-outline" size={24} color={COLORS.lime} /><Text style={styles.emptyStateTitle}>Nenhum alerta neste raio</Text><Text style={styles.emptyStateText}>Amplie a distância para consultar a área de proteção.</Text></View>}
       </View>
 
@@ -698,20 +720,25 @@ function SignupScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleSignup = () => {
+  const [notice, setNotice] = useState<Notice | undefined>();
+  const handleSignup = async () => {
     const nextErrors: Record<string, string> = {};
-    if (!name.trim()) nextErrors.name = "Informe o seu nome.";
+    if (name.trim().length < 2) nextErrors.name = "Informe o seu nome.";
     if (!email.trim() || !email.includes("@")) nextErrors.email = "Digite um e-mail válido.";
-    if (password.length < 6) nextErrors.password = "Use pelo menos 6 caracteres.";
+    if (password.length < 12) nextErrors.password = "Use pelo menos 12 caracteres.";
     if (confirmPassword !== password) nextErrors.confirm = "As palavras-passe não coincidem.";
     setErrors(nextErrors);
+    setNotice(undefined);
     if (Object.keys(nextErrors).length > 0) return;
-
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      await GuardiaoAuth.registerAccount(name.trim(), email.trim(), password);
       onNavigate("verify");
-    }, 650);
+    } catch (error) {
+      setNotice({ type: "error", message: error instanceof Error ? error.message : "Falha ao criar conta." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -724,11 +751,12 @@ function SignupScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) 
       </View>
 
       <View style={styles.formCard}>
-        <Field label="NOME COMPLETO" value={name} onChangeText={setName} placeholder="Como podemos chamar você?" icon="person-outline" autoCapitalize="words" error={errors.name} />
-        <Field label="E-MAIL" value={email} onChangeText={setEmail} placeholder="voce@exemplo.com" icon="mail-outline" keyboardType="email-address" error={errors.email} />
-        <Field label="PALAVRA-PASSE" value={password} onChangeText={setPassword} placeholder="Mínimo de 6 caracteres" icon="lock-closed-outline" secureTextEntry={!showPassword} onToggleSecure={() => setShowPassword((value) => !value)} error={errors.password} />
-        <Field label="CONFIRME A PALAVRA-PASSE" value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Repita a sua palavra-passe" icon="checkmark-circle-outline" secureTextEntry={!showConfirm} onToggleSecure={() => setShowConfirm((value) => !value)} error={errors.confirm} />
-        <Text style={styles.helperText}>Ao continuar, você concorda em utilizar a plataforma com responsabilidade.</Text>
+        <Field label="NOME COMPLETO" value={name} onChangeText={(value) => { setName(value); setErrors((prev) => ({ ...prev, name: "" })); }} placeholder="Como podemos chamar você?" icon="person-outline" autoCapitalize="words" error={errors.name} />
+        <Field label="E-MAIL" value={email} onChangeText={(value) => { setEmail(value); setErrors((prev) => ({ ...prev, email: "" })); }} placeholder="voce@exemplo.com" icon="mail-outline" keyboardType="email-address" error={errors.email} />
+        <Field label="PALAVRA-PASSE" value={password} onChangeText={(value) => { setPassword(value); setErrors((prev) => ({ ...prev, password: "" })); }} placeholder="Mínimo de 12 caracteres" icon="lock-closed-outline" secureTextEntry={!showPassword} onToggleSecure={() => setShowPassword((value) => !value)} error={errors.password} />
+        <Field label="CONFIRME A PALAVRA-PASSE" value={confirmPassword} onChangeText={(value) => { setConfirmPassword(value); setErrors((prev) => ({ ...prev, confirm: "" })); }} placeholder="Repita a sua palavra-passe" icon="checkmark-circle-outline" secureTextEntry={!showConfirm} onToggleSecure={() => setShowConfirm((value) => !value)} error={errors.confirm} />
+        <Text style={styles.helperText}>Cadastro real no banco local. O e-mail ainda NÃO será verificado; use apenas dados fictícios para testes.</Text>
+        {notice && <NoticeBanner notice={notice} />}
         <PrimaryButton onPress={handleSignup} loading={loading} icon="arrow-forward">
           Criar a minha conta
         </PrimaryButton>
@@ -752,7 +780,7 @@ function VerifyScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) 
     setTimeout(() => {
       setLoading(false);
       setNotice(code === DEMO_CODE
-        ? { type: "success", message: "Conta validada com sucesso. Pode entrar quando quiser." }
+        ? { type: "success", message: "Código demonstrativo aceito. A conta foi criada no banco, mas o e-mail NÃO foi verificado." }
         : { type: "error", message: "Esse código não confere. Para a demonstração, use 246810." });
     }, 500);
   };
@@ -764,7 +792,7 @@ function VerifyScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) 
         <View style={styles.verificationIcon}><Ionicons name={isVerified ? "checkmark" : "mail-open-outline"} size={30} color={COLORS.lime} /></View>
         <Text style={styles.eyebrow}>VALIDAR CONTA</Text>
         <Text style={styles.title}>{isVerified ? "Tudo certo por aqui." : "Só mais um cuidado."}</Text>
-        <Text style={styles.subtitle}>{isVerified ? "A sua identidade foi confirmada neste protótipo." : "Digite o código de 6 números para confirmar que este e-mail é seu."}</Text>
+        <Text style={styles.subtitle}>{isVerified ? "Código de demonstração aceito. Sua identidade NÃO foi verificada." : "Etapa didática: use o código fixo. Nenhum e-mail é enviado nem verificado."}</Text>
       </View>
 
       <View style={styles.formCard}>
@@ -889,10 +917,722 @@ function GovScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
   );
 }
 
+function SensorsScreen({ onNavigate }: { onNavigate: (screen: Screen) => void }) {
+  const [{ x: ax, y: ay, z: az }, setAccelData] = useState({ x: 0, y: 0, z: 0 });
+  const [{ x: gx, y: gy, z: gz }, setGyroData] = useState({ x: 0, y: 0, z: 0 });
+  const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [isSupported, setIsSupported] = useState(
+    () =>
+      Platform.OS !== "web" &&
+      typeof Accelerometer?.addListener === "function" &&
+      typeof Gyroscope?.addListener === "function"
+  );
+
+  useEffect(() => {
+    // 1. Leitura de GPS via expo-location
+    async function getGPS() {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          setGpsError("Permissão de GPS negada");
+          return;
+        }
+        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        setCoords({
+          lat: location.coords.latitude,
+          lng: location.coords.longitude,
+          accuracy: location.coords.accuracy ?? 0,
+        });
+      } catch (e) {
+        setGpsError("Erro ao obter GPS");
+      }
+    }
+
+    getGPS();
+
+
+    // 2. Leitura de Sensores de Movimento via expo-sensors
+    const hasAccel = typeof Accelerometer?.addListener === "function";
+    const hasGyro = typeof Gyroscope?.addListener === "function";
+
+    if (Platform.OS === "web" || !hasAccel || !hasGyro) {
+      return;
+    }
+
+    let cancelled = false;
+
+    let accelSub:
+      | ReturnType<typeof Accelerometer.addListener>
+      | undefined;
+
+    let gyroSub:
+      | ReturnType<typeof Gyroscope.addListener>
+      | undefined;
+
+    async function iniciarSensores() {
+      try {
+        const [accelAvailable, gyroAvailable] = await Promise.all([
+          Accelerometer.isAvailableAsync(),
+          Gyroscope.isAvailableAsync(),
+        ]);
+
+        if (cancelled) return;
+
+        if (!accelAvailable || !gyroAvailable) {
+          setIsSupported(false);
+          return;
+        }
+
+        Accelerometer.setUpdateInterval(300);
+        Gyroscope.setUpdateInterval(300);
+
+        accelSub = Accelerometer.addListener(setAccelData);
+        gyroSub = Gyroscope.addListener(setGyroData);
+      } catch {
+        accelSub?.remove();
+        gyroSub?.remove();
+
+        if (!cancelled) {
+          setIsSupported(false);
+        }
+      }
+    }
+
+    void iniciarSensores();
+
+    return () => {
+      cancelled = true;
+      accelSub?.remove();
+      gyroSub?.remove();
+    };
+  }, []);
+
+
+  return (
+    <ScreenFrame onBack={() => onNavigate("feed")}>
+      <View style={styles.innerIntro}>
+        <View style={styles.verificationIcon}>
+          <Ionicons name="hardware-chip-outline" size={29} color={COLORS.lime} />
+        </View>
+        <Text style={styles.eyebrow}>HARDWARE NATIVO</Text>
+        <Text style={styles.title}>Laboratório de Sensores</Text>
+        <Text style={styles.subtitle}>
+          Leitura em tempo real do Acelerômetro, Giroscópio e Localizador GPS.
+        </Text>
+      </View>
+
+      {!isSupported && (
+        <View style={styles.notice}>
+          <Ionicons name="information-circle-outline" size={18} color={COLORS.amber} />
+          <Text style={[styles.noticeText, { color: COLORS.amber }]}>
+            A leitura nativa de sensores requer execução no aplicativo móvel (Expo Go). Na Web, o app exibe modo demonstrativo.
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.formCard}>
+        {/* BLOCO 1: GPS */}
+        <Text style={styles.cardKicker}>1 · POSICIONAMENTO GLOBAL (GPS)</Text>
+        {coords ? (
+          <View style={styles.captureActions}>
+            <View style={styles.ufChip}>
+              <Text style={styles.fieldLabel}>LATITUDE</Text>
+              <Text style={{ color: COLORS.lime, fontWeight: "800", fontSize: 11 }}>{coords.lat.toFixed(4)}</Text>
+            </View>
+            <View style={styles.ufChip}>
+              <Text style={styles.fieldLabel}>LONGITUDE</Text>
+              <Text style={{ color: COLORS.lime, fontWeight: "800", fontSize: 11 }}>{coords.lng.toFixed(4)}</Text>
+            </View>
+            <View style={styles.ufChip}>
+              <Text style={styles.fieldLabel}>PRECISÃO</Text>
+              <Text style={{ color: COLORS.lime, fontWeight: "800", fontSize: 11 }}>{coords.accuracy.toFixed(0)}m</Text>
+            </View>
+          </View>
+        ) : (
+          <Text style={{ color: COLORS.muted, fontSize: 12, marginVertical: 6 }}>
+            {gpsError ?? "Carregando coordenadas do GPS..."}
+          </Text>
+        )}
+
+        {/* BLOCO 2: ACELERÔMETRO */}
+        <Text style={[styles.cardKicker, { marginTop: 15 }]}>2 · ACELERÔMETRO (MOVIMENTO)</Text>
+        <View style={styles.captureActions}>
+          <View style={styles.ufChip}>
+            <Text style={styles.fieldLabel}>EIXO X</Text>
+            <Text style={styles.linkText}>{ax.toFixed(2)}</Text>
+          </View>
+          <View style={styles.ufChip}>
+            <Text style={styles.fieldLabel}>EIXO Y</Text>
+            <Text style={styles.linkText}>{ay.toFixed(2)}</Text>
+          </View>
+          <View style={styles.ufChip}>
+            <Text style={styles.fieldLabel}>EIXO Z</Text>
+            <Text style={styles.linkText}>{az.toFixed(2)}</Text>
+          </View>
+        </View>
+
+        {/* BLOCO 3: GIROSCÓPIO */}
+        <Text style={[styles.cardKicker, { marginTop: 15 }]}>3 · GIROSCÓPIO (ROTAÇÃO)</Text>
+        <View style={styles.captureActions}>
+          <View style={styles.ufChip}>
+            <Text style={styles.fieldLabel}>GIRO X</Text>
+            <Text style={{ color: COLORS.amber, fontWeight: "800" }}>{gx.toFixed(2)}</Text>
+          </View>
+          <View style={styles.ufChip}>
+            <Text style={styles.fieldLabel}>GIRO Y</Text>
+            <Text style={{ color: COLORS.amber, fontWeight: "800" }}>{gy.toFixed(2)}</Text>
+          </View>
+          <View style={styles.ufChip}>
+            <Text style={styles.fieldLabel}>GIRO Z</Text>
+            <Text style={{ color: COLORS.amber, fontWeight: "800" }}>{gz.toFixed(2)}</Text>
+          </View>
+        </View>
+      </View>
+
+      <BottomNav active="sensors" onNavigate={onNavigate} />
+    </ScreenFrame>
+  );
+}
+
+import { Linking } from "react-native";
+
+function CaseDetailScreen({
+  onNavigate,
+  selectedCase,
+}: {
+  onNavigate: (screen: Screen, caseData?: DemoAlert) => void;
+  selectedCase?: DemoAlert | null;
+}) {
+  const handleCallPolice = (number: string) => {
+    void Linking.openURL(`tel:${number}`);
+  };
+
+  // Dados dinâmicos ou fallback caso não passe nenhum
+  const caseTitle = selectedCase?.title ?? "Caso Não Identificado";
+  const caseAge = selectedCase?.age ?? "Não informada";
+  const caseNeighborhood = selectedCase?.neighborhood ?? "Região Central";
+  const caseTime = selectedCase?.time ?? "Atualizado recentemente";
+
+  return (
+    <ScreenFrame onBack={() => onNavigate("feed")} backLabel="Voltar aos Alertas">
+      <View>
+        {/* Alerta Visual de Emergência */}
+        <View style={[styles.notice, { borderColor: `${COLORS.coral}66`, backgroundColor: `${COLORS.coral}15` }]}>
+          <Ionicons name="warning-outline" size={20} color={COLORS.coral} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: COLORS.coral, fontWeight: "800", fontSize: 12 }}>RECONHECEU AS CARACTERÍSTICAS?</Text>
+            <Text style={{ color: COLORS.text, fontSize: 11, marginTop: 2 }}>
+              Não tente intervir sozinho. Acione os canais oficiais imediatamente.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.formCard}>
+          {/* Cabeçalho Dinâmico */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 15 }}>
+            <View>
+              <Text style={styles.cardKicker}>CASO REGISTRADO · SP</Text>
+              <Text style={styles.cardTitle}>{caseTitle}</Text>
+              <Text style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>
+                {caseNeighborhood} · {caseTime}
+              </Text>
+            </View>
+            <View style={{ backgroundColor: "#202A22", borderWidth: 1, borderColor: "#43552A", paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 }}>
+              <Text style={{ color: COLORS.lime, fontSize: 9, fontWeight: "800" }}>BO VALIDADO</Text>
+            </View>
+          </View>
+
+          {/* Avatar e Características Físicas Protegidas */}
+          <View style={{ backgroundColor: COLORS.surfaceRaised, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, padding: 15, alignItems: "center", marginBottom: 18 }}>
+            <View style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: "#202A22", borderWidth: 2, borderColor: COLORS.lime, alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+              <Ionicons name="person-outline" size={36} color={COLORS.lime} />
+            </View>
+            <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: "800" }}>Identificação por Características</Text>
+            <Text style={{ color: COLORS.subtle, fontSize: 10, textAlign: "center", marginTop: 2, marginBottom: 12 }}>
+              Imagem protegida em conformidade com o ECA/LGPD
+            </Text>
+
+            <View style={{ width: "100%", gap: 8 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingBottom: 6 }}>
+                <Text style={styles.fieldLabel}>IDADE ESTIMADA</Text>
+                <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: "700" }}>{caseAge}</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingBottom: 6 }}>
+                <Text style={styles.fieldLabel}>TOM DE PELE</Text>
+                <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: "700" }}>Parda / Clara</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingBottom: 6 }}>
+                <Text style={styles.fieldLabel}>REGIAO DA OCORRÊNCIA</Text>
+                <Text style={{ color: COLORS.text, fontSize: 12, fontWeight: "700" }}>{caseNeighborhood}</Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", paddingBottom: 2 }}>
+                <Text style={styles.fieldLabel}>STATUS DO CASO</Text>
+                <Text style={{ color: COLORS.lime, fontSize: 12, fontWeight: "700" }}>Em Triagem Oficial</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Registro do B.O. */}
+          <View style={{ marginBottom: 18 }}>
+            <Text style={styles.cardKicker}>REGISTRO OFICIAL DE POLÍCIA</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <Ionicons name="document-text-outline" size={18} color={COLORS.muted} />
+              <Text style={{ color: COLORS.text, fontSize: 13, fontWeight: "800" }}>B.O. nº BO-2026-984123</Text>
+            </View>
+          </View>
+
+          {/* Ações de Emergência */}
+          <Text style={[styles.cardKicker, { marginBottom: 10 }]}>AÇÕES DE EMERGÊNCIA</Text>
+          <View style={{ gap: 10 }}>
+            <Pressable
+              onPress={() => handleCallPolice("181")}
+              style={[styles.primaryButton, { backgroundColor: "#1A261D", borderWidth: 1, borderColor: COLORS.lime }]}
+            >
+              <Ionicons name="call-outline" size={18} color={COLORS.lime} />
+              <Text style={[styles.primaryButtonText, { color: COLORS.lime }]}>Enviar Pista Sigilosa (Disque 181)</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => handleCallPolice("190")}
+              style={[styles.primaryButton, { backgroundColor: COLORS.coral }]}
+            >
+              <Ionicons name="alert-circle" size={18} color={COLORS.background} />
+              <Text style={[styles.primaryButtonText, { color: COLORS.background }]}>Ligar para Polícia Militar (190)</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <BottomNav active="feed" onNavigate={onNavigate} />
+      </View>
+    </ScreenFrame>
+  );
+}
+
+
+function ProfileScreen({
+  onNavigate,
+  onSessionExpired,
+  onCredentialsChanged,
+}: {
+  onNavigate: (screen: Screen) => void;
+  onSessionExpired: () => void;
+  onCredentialsChanged: (message: string) => void;
+}) {
+  const [account, setAccount] = useState<GuardiaoAuth.GuardiaoAccount | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<Notice | null>(null);
+  const [securityMode, setSecurityMode] = useState<"password" | "email" | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [securitySaving, setSecuritySaving] = useState(false);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+
+  const clearSecurityInputs = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setNewEmail("");
+    setSecurityError(null);
+  };
+
+  const chooseSecurityMode = (mode: "password" | "email") => {
+    if (securitySaving) return;
+    clearSecurityInputs();
+    setEditingName(false);
+    setSecurityMode(mode);
+  };
+
+  const cancelSecurityMode = () => {
+    if (securitySaving) return;
+    clearSecurityInputs();
+    setSecurityMode(null);
+  };
+
+  const saveSecurityChange = async () => {
+    if (!securityMode || securitySaving) return;
+    setSecurityError(null);
+    if (!currentPassword) {
+      setSecurityError("Informe sua palavra-passe atual.");
+      return;
+    }
+    if (securityMode === "password") {
+      if (newPassword.length < 12 || newPassword.length > 128) {
+        setSecurityError("A nova palavra-passe deve ter entre 12 e 128 caracteres.");
+        return;
+      }
+      if (newPassword === currentPassword) {
+        setSecurityError("A nova palavra-passe deve ser diferente da atual.");
+        return;
+      }
+      if (newPassword !== confirmNewPassword) {
+        setSecurityError("A confirmação da nova palavra-passe não confere.");
+        return;
+      }
+    } else {
+      const email = newEmail.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+        setSecurityError("Informe um e-mail válido.");
+        return;
+      }
+      if (email === account?.email) {
+        setSecurityError("O novo e-mail deve ser diferente do atual.");
+        return;
+      }
+    }
+    setSecuritySaving(true);
+    try {
+      if (securityMode === "password") {
+        await GuardiaoAuth.changeAccountPassword(currentPassword, newPassword);
+      } else {
+        await GuardiaoAuth.changeAccountEmail(currentPassword, newEmail.trim());
+      }
+      clearSecurityInputs();
+      onCredentialsChanged(securityMode === "password"
+        ? "Palavra-passe atualizada. Entre novamente."
+        : "E-mail atualizado e ainda não verificado. Entre com o novo e-mail.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Não foi possível atualizar a conta.";
+      if (/sessão inválida|expirada/i.test(message)) {
+        clearSecurityInputs();
+        onSessionExpired();
+        return;
+      }
+      setSecurityError(message);
+    } finally {
+      setSecuritySaving(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    GuardiaoAuth.currentAccount()
+      .then((result) => {
+        if (!active) return;
+        if (!result) {
+          onSessionExpired();
+          return;
+        }
+        setAccount(result);
+        setDraftName(result.name);
+      })
+      .catch(() => {
+        if (active) setError("Não foi possível consultar o perfil. Verifique a conexão com o servidor.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [onSessionExpired, reload]);
+
+  const tryAgain = () => {
+    setAccount(null);
+    setError(null);
+    setLoading(true);
+    setReload((value) => value + 1);
+  };
+
+  const startEditingName = () => {
+    if (!account) return;
+    setDraftName(account.name);
+    setNameError(null);
+    setSaveNotice(null);
+    clearSecurityInputs();
+    setSecurityMode(null);
+    setEditingName(true);
+  };
+
+  const cancelEditingName = () => {
+    if (savingName) return;
+    setDraftName(account?.name ?? "");
+    setEditingName(false);
+    setNameError(null);
+  };
+
+  const saveName = async () => {
+    const name = draftName.trim();
+    if (name.length < 2 || name.length > 120 || /[\u0000-\u001F\u007F]/u.test(name)) {
+      setNameError("Informe um nome de 2 a 120 caracteres, sem quebras de linha.");
+      return;
+    }
+    setNameError(null);
+    setSavingName(true);
+    try {
+      const updated = await GuardiaoAuth.updateAccountName(name);
+      setAccount(updated);
+      setDraftName(updated.name);
+      setEditingName(false);
+      setSaveNotice({ type: "success", message: "Nome atualizado no banco de dados." });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Não foi possível atualizar o nome.";
+      if (/sessão inválida|expirada/i.test(message)) {
+        onSessionExpired();
+        return;
+      }
+      setNameError(message);
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  return (
+    <ScreenFrame onBack={() => onNavigate("feed")} backLabel="Voltar aos alertas">
+      <View style={styles.innerIntro}>
+        <Text style={styles.eyebrow}>MINHA CONTA</Text>
+        <Text style={styles.title}>Meu Perfil</Text>
+        <Text style={styles.subtitle}>Informações da conta consultadas com segurança no servidor local.</Text>
+      </View>
+
+      {loading ? (
+        <View style={styles.profileLoading}>
+          <ActivityIndicator color={COLORS.lime} size="large" />
+          <Text style={styles.profileHint}>A consultar os seus dados...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.formCard}>
+          <NoticeBanner notice={{ type: "error", message: error }} />
+          <PrimaryButton onPress={tryAgain} icon="refresh-outline">Tentar novamente</PrimaryButton>
+        </View>
+      ) : account ? (
+        <View style={styles.profileCard}>
+          {saveNotice ? <NoticeBanner notice={saveNotice} /> : null}
+          <View style={styles.profileHeader}>
+            <View style={styles.profileAvatar}>
+              <Ionicons name="person-outline" size={26} color={COLORS.lime} />
+            </View>
+            <View style={styles.profileHeaderCopy}>
+              <Text style={styles.profileName}>{account.name}</Text>
+              <Text style={styles.profileHint}>Conta local do Guardião</Text>
+            </View>
+          </View>
+          {!editingName ? (
+            <Pressable
+              onPress={startEditingName}
+              accessibilityRole="button"
+              accessibilityLabel="Editar nome da conta"
+              style={styles.profileEditAction}
+            >
+              <Ionicons name="create-outline" size={16} color={COLORS.lime} />
+              <Text style={styles.profileEditActionText}>Editar meu nome</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.profileEditPanel}>
+              <Field
+                label="NOVO NOME"
+                value={draftName}
+                onChangeText={(value) => { setDraftName(value); setNameError(null); }}
+                placeholder="Como podemos chamar você?"
+                icon="person-outline"
+                autoCapitalize="words"
+                error={nameError ?? undefined}
+              />
+              <PrimaryButton onPress={() => { void saveName(); }} loading={savingName} icon="checkmark-outline">
+                Salvar nome
+              </PrimaryButton>
+              <Pressable
+                onPress={cancelEditingName}
+                disabled={savingName}
+                accessibilityRole="button"
+                style={styles.profileCancelAction}
+              >
+                <Text style={styles.profileCancelText}>Cancelar edição</Text>
+              </Pressable>
+            </View>
+          )}
+          <View style={styles.profileSeparator} />
+          <Text style={styles.profileLabel}>E-MAIL</Text>
+          <Text style={styles.profileValue} selectable>{account.email}</Text>
+          <View style={styles.profileSeparator} />
+          <Text style={styles.profileLabel}>VERIFICAÇÃO DO E-MAIL</Text>
+          <View style={styles.profileStatus}>
+            <Ionicons
+              name={account.emailVerified ? "checkmark-circle-outline" : "alert-circle-outline"}
+              size={18}
+              color={account.emailVerified ? COLORS.lime : COLORS.amber}
+            />
+            <Text style={[styles.profileStatusText, { color: account.emailVerified ? COLORS.lime : COLORS.amber }]}>
+              {account.emailVerified ? "E-mail verificado" : "E-mail ainda não verificado"}
+            </Text>
+          </View>
+          {!account.emailVerified && (
+            <Text style={styles.profileHint}>O código 246810 utilizado na apresentação é demonstrativo e não verifica o e-mail.</Text>
+          )}
+          <View style={styles.profileSeparator} />
+          <Text style={styles.profileLabel}>DATA DE CADASTRO</Text>
+          <Text style={styles.profileValue}>{formatGuardiaoProfileDate(account.createdDate)}</Text>
+          <View style={styles.profileSeparator} />
+          <Text style={styles.profileLabel}>ÚLTIMA ATUALIZAÇÃO</Text>
+          <Text style={styles.profileValue}>{formatGuardiaoProfileDate(account.updatedDate)}</Text>
+          <View style={styles.profileSeparator} />
+          <Text style={styles.profileLabel}>SEGURANÇA DA CONTA</Text>
+          {!securityMode ? (
+            <View style={styles.profileSecurityActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Alterar minha palavra-passe"
+                onPress={() => chooseSecurityMode("password")}
+                style={styles.profileEditAction}
+              >
+                <Ionicons name="key-outline" size={16} color={COLORS.lime} />
+                <Text style={styles.profileEditActionText}>Alterar palavra-passe</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Alterar meu e-mail"
+                onPress={() => chooseSecurityMode("email")}
+                style={styles.profileEditAction}
+              >
+                <Ionicons name="mail-outline" size={16} color={COLORS.lime} />
+                <Text style={styles.profileEditActionText}>Alterar e-mail</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.profileEditPanel}>
+              <Text style={styles.profileSecurityTitle}>
+                {securityMode === "password" ? "Alterar palavra-passe" : "Alterar e-mail"}
+              </Text>
+              <Text style={styles.profileHint}>
+                Após a alteração, todas as sessões serão encerradas. Você precisará entrar novamente.
+              </Text>
+              {securityMode === "email" && (
+                <Text style={[styles.profileHint, { marginTop: 8, marginBottom: 10 }]}>
+                  A troca não verifica a titularidade do novo e-mail; a verificação por mensagem ainda não está disponível.
+                </Text>
+              )}
+              <View style={{ marginTop: 14 }}>
+                <Field
+                  label="PALAVRA-PASSE ATUAL"
+                  value={currentPassword}
+                  onChangeText={(value) => { setCurrentPassword(value); setSecurityError(null); }}
+                  placeholder="Confirme a palavra-passe atual"
+                  icon="lock-closed-outline"
+                  secureTextEntry
+                />
+                {securityMode === "password" ? (
+                  <>
+                    <Field
+                      label="NOVA PALAVRA-PASSE"
+                      value={newPassword}
+                      onChangeText={(value) => { setNewPassword(value); setSecurityError(null); }}
+                      placeholder="De 12 a 128 caracteres"
+                      icon="key-outline"
+                      secureTextEntry
+                    />
+                    <Field
+                      label="CONFIRME A NOVA PALAVRA-PASSE"
+                      value={confirmNewPassword}
+                      onChangeText={(value) => { setConfirmNewPassword(value); setSecurityError(null); }}
+                      placeholder="Repita a nova palavra-passe"
+                      icon="checkmark-circle-outline"
+                      secureTextEntry
+                    />
+                  </>
+                ) : (
+                  <Field
+                    label="NOVO E-MAIL"
+                    value={newEmail}
+                    onChangeText={(value) => { setNewEmail(value); setSecurityError(null); }}
+                    placeholder="novo.email@example.com"
+                    icon="mail-outline"
+                    keyboardType="email-address"
+                  />
+                )}
+              </View>
+              {securityError && <NoticeBanner notice={{ type: "error", message: securityError }} />}
+              <PrimaryButton
+                onPress={() => { void saveSecurityChange(); }}
+                loading={securitySaving}
+                icon="checkmark-outline"
+              >
+                {securityMode === "password" ? "Salvar palavra-passe" : "Salvar e-mail"}
+              </PrimaryButton>
+              <Pressable
+                accessibilityRole="button"
+                onPress={cancelSecurityMode}
+                disabled={securitySaving}
+                style={styles.profileCancelAction}
+              >
+                <Text style={styles.profileCancelText}>Cancelar alteração</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      ) : null}
+      <Text style={styles.disclaimer}>Nome, e-mail e palavra-passe podem ser alterados. O e-mail ainda não possui verificação real.</Text>
+    </ScreenFrame>
+  );
+}
+
 export default function HomeScreen() {
   const [screen, setScreen] = useState<Screen>("login");
+  const [selectedCase, setSelectedCase] = useState<DemoAlert | null>(null); // Guardará a criança clicada
   const [transitionKey, setTransitionKey] = useState(0);
-  const onNavigate = (nextScreen: Screen) => {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    GuardiaoAuth.currentAccount()
+      .then((account) => {
+        if (!active) return;
+        if (account) {
+          setAuthenticated(true);
+          setScreen("feed");
+        }
+      })
+      .catch(() => {
+        // Falha de rede não significa uma sessão válida.
+      })
+      .finally(() => { if (active) setSessionLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  const onLogin = () => {
+    setAuthenticated(true);
+    setAuthError(null);
+    setScreen("feed");
+    setTransitionKey((value) => value + 1);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await GuardiaoAuth.logoutAccount();
+      setAuthenticated(false);
+      setAuthError(null);
+      setScreen("login");
+      setTransitionKey((value) => value + 1);
+    } catch {
+      const message = "Não foi possível revogar a sessão. Verifique a conexão com o servidor e tente novamente.";
+      setAuthError(message);
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.alert(message);
+      } else {
+        Alert.alert("Falha ao sair", message);
+      }
+    }
+  };
+
+  const onNavigate = (nextScreen: Screen, caseData?: DemoAlert) => {
+    if (nextScreen === "login" && authenticated) {
+      void handleLogout();
+      return;
+    }
+    if (["feed", "wizard", "sensors", "case_detail", "profile"].includes(nextScreen) && !authenticated) {
+      setScreen("login");
+      return;
+    }
+    if (caseData){
+      setSelectedCase(caseData);
+    }
     setScreen(nextScreen);
     setTransitionKey((value) => value + 1);
   };
@@ -911,10 +1651,30 @@ export default function HomeScreen() {
         return <FeedScreen onNavigate={onNavigate} />;
       case "wizard":
         return <WizardScreen onNavigate={onNavigate} />;
+      case "sensors":
+        return <SensorsScreen onNavigate={onNavigate} />;
+      case "case_detail":
+        return <CaseDetailScreen onNavigate={onNavigate} selectedCase={selectedCase} />;
+      case "profile":
+        return <ProfileScreen onNavigate={onNavigate} onSessionExpired={() => {
+          setAuthenticated(false);
+          setAuthError("A sua sessão expirou. Entre novamente.");
+          setScreen("login");
+          setTransitionKey((value) => value + 1);
+        }} onCredentialsChanged={(message) => {
+          setAuthenticated(false);
+          setAuthError(message);
+          setScreen("login");
+          setTransitionKey((value) => value + 1);
+        }} />;
       default:
-        return <LoginScreen onNavigate={onNavigate} />;
+        return <LoginScreen onNavigate={onNavigate} onLogin={onLogin} externalError={authError} />;
     }
-  }, [screen]);
+  }, [screen, selectedCase, authenticated, authError]);
+
+  if (sessionLoading) {
+    return <View style={[styles.app, { justifyContent: "center" }]}><ActivityIndicator color={COLORS.lime} /></View>;
+  }
 
   return (
     <KeyboardAvoidingView key={transitionKey} style={styles.app} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -998,6 +1758,27 @@ const styles = StyleSheet.create({
   infoText: { color: COLORS.muted, fontSize: 12, lineHeight: 18 },
 
   feedIntro: { paddingTop: 29, paddingBottom: 18 },
+  profileAccess: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 17, paddingHorizontal: 13, paddingVertical: 10, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14 },
+  profileAccessText: { color: COLORS.lime, fontSize: 12, fontWeight: "800" },
+  profileLoading: { alignItems: "center", justifyContent: "center", paddingVertical: 42, gap: 15 },
+  profileCard: { backgroundColor: COLORS.surface, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, padding: 20 },
+  profileHeader: { flexDirection: "row", alignItems: "center", gap: 13 },
+  profileAvatar: { width: 57, height: 57, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#202A22", borderWidth: 1, borderColor: "#43552A" },
+  profileHeaderCopy: { flex: 1 },
+  profileName: { color: COLORS.text, fontSize: 19, fontWeight: "800" },
+  profileSeparator: { height: 1, backgroundColor: COLORS.border, marginVertical: 17 },
+  profileLabel: { color: COLORS.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1.1, marginBottom: 7 },
+  profileValue: { color: COLORS.text, fontSize: 14, fontWeight: "600" },
+  profileStatus: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  profileStatusText: { fontSize: 12, fontWeight: "700" },
+  profileHint: { color: COLORS.muted, fontSize: 11, lineHeight: 17 },
+  profileEditAction: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", borderWidth: 1, borderColor: "#43552A", backgroundColor: "#202A22", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 10, marginTop: 15 },
+  profileEditActionText: { color: COLORS.lime, fontSize: 12, fontWeight: "800" },
+  profileEditPanel: { borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: 17, paddingTop: 17 },
+  profileCancelAction: { alignItems: "center", padding: 12, marginTop: 7 },
+  profileCancelText: { color: COLORS.muted, fontSize: 12, fontWeight: "700" },
+  profileSecurityActions: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  profileSecurityTitle: { color: COLORS.text, fontSize: 17, fontWeight: "800", marginBottom: 6 },
   feedStatusCard: { flexDirection: "row", alignItems: "center", gap: 11, backgroundColor: "#172019", borderWidth: 1, borderColor: "#34452A", borderRadius: 18, padding: 13, marginBottom: 24 },
   feedStatusIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: "#243323", alignItems: "center", justifyContent: "center" },
   feedStatusCopy: { flex: 1 },

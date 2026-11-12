@@ -32,8 +32,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# local env files - SEGREDOS NAO DEVEM ENTRAR NO GIT
+.env
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo
@@ -65,3 +67,14 @@ Thumbs.db
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+
+# Arquivos privados do Guardiao
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+Backups_Guardiao/
+Backup_PrePatch_*/
+package-lock.json
