@@ -8,6 +8,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { createCorsMiddleware } from "./cors";
 import { clearLegacySessionCookie } from "./cookies";
+import { registerGuardiaoAuthRoutes } from "../guardiao-auth";
+import { registerGuardiaoAccountSecurityRoutes } from "../guardiao-account-security-routes";
 
 async function startServer() {
   const app = express();
@@ -21,6 +23,8 @@ async function startServer() {
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerGuardiaoAuthRoutes(app);
+  registerGuardiaoAccountSecurityRoutes(app);
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });

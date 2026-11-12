@@ -1,3 +1,5 @@
+
+import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker, type Region } from "react-native-maps";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -61,17 +63,135 @@ export function InteractiveMap({
   onSelectCase,
   onRefreshLocation,
 }: InteractiveMapProps) {
+
+    // CONTROLE DA CÂMERA DO MAPA
+  const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapLaidOut, setMapLaidOut] = useState(false);
+
+  // Região utilizada somente na inicialização do mapa.
   const initialRegion: Region = {
     ...userLocation,
     latitudeDelta: 0.12,
     longitudeDelta: 0.12,
   };
 
+
+  // CENTRALIZAÇÃO AUTOMÁTICA E AJUSTE DOS FILTROS
+
+  // Reúne a localização do usuário e os casos visíveis.
+  const pontos: MapCoordinate[] = [
+    userLocation,
+    ...cases.map((item) => item.coordinate),
+  ];
+
+  // Descobre os limites geográficos dos pontos.
+  const latitudes = pontos.map((ponto) => ponto.latitude);
+  const longitudes = pontos.map((ponto) => ponto.longitude);
+
+  const latitudeMin = Math.min(...latitudes);
+  const latitudeMax = Math.max(...latitudes);
+  const longitudeMin = Math.min(...longitudes);
+  const longitudeMax = Math.max(...longitudes);
+
+  // Calcula o centro geográfico.
+  const centroLatitude = (latitudeMin + latitudeMax) / 2;
+  const centroLongitude = (longitudeMin + longitudeMax) / 2;
+
+  // Calcula a área visível, com margem ao redor dos pontos.
+  const latitudeDelta = Math.max(
+    0.045,
+    (latitudeMax - latitudeMin) * 1.8
+  );
+
+  const longitudeDelta = Math.max(
+    0.045,
+    (longitudeMax - longitudeMin) * 1.8
+  );
+
+    useEffect(() => {
+    console.log("[GUARDIAO MAP] Estado:", {
+      mapReady,
+      mapLaidOut,
+      locationGranted,
+      quantidadeCasos: cases.length,
+      referenciaDisponivel: Boolean(mapRef.current),
+    });
+
+    // Aguarda o mapa estar pronto, dimensionado e com GPS ativo.
+    if (!mapReady || !mapLaidOut || !locationGranted) {
+      console.log("[GUARDIAO MAP] Camera aguardando condicoes");
+      return;
+    }
+
+    // Aguarda brevemente a inicialização da câmera nativa.
+    const timer = setTimeout(() => {
+      const map = mapRef.current;
+
+      if (!map) return;
+
+      const regiaoVisivel: Region = {
+        latitude: centroLatitude,
+        longitude: centroLongitude,
+        latitudeDelta,
+        longitudeDelta,
+      };
+
+      // Diagnóstico da chamada nativa.
+      console.log("[GUARDIAO MAP] Enviando comando de camera:", {
+        quantidadeCasos: cases.length,
+        latitudeDelta: regiaoVisivel.latitudeDelta,
+        longitudeDelta: regiaoVisivel.longitudeDelta,
+      });
+
+      map.animateToRegion(regiaoVisivel, 550);
+    }, 300);
+
+    // Evita executar uma atualização cancelada.
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    mapReady,
+    mapLaidOut,
+    locationGranted,
+    centroLatitude,
+    centroLongitude,
+    latitudeDelta,
+    longitudeDelta,
+    cases.length,
+  ]);
+
   return (
-    <View style={styles.wrapper} accessibilityLabel="Mapa interativo de casos próximos">
-      <MapView
+    <View
+      style={styles.wrapper}
+      accessibilityLabel="Mapa interativo de casos próximos"
+    >
+            <MapView
+        ref={mapRef}
         style={styles.map}
         initialRegion={initialRegion}
+        onMapReady={() => {
+          console.log("[GUARDIAO MAP] onMapReady");
+          setMapReady(true);
+        }}
+        onLayout={() => {
+          console.log("[GUARDIAO MAP] onLayout");
+          setMapLaidOut(true);
+        }}
+        onRegionChangeComplete={(region, details) => {
+          const diferencaCentro = Math.hypot(
+            region.latitude - centroLatitude,
+            region.longitude - centroLongitude
+          );
+
+          console.log("[GUARDIAO MAP] Camera atualizada:", {
+            diferencaCentro: Number(diferencaCentro.toFixed(3)),
+            latitudeDelta: Number(region.latitudeDelta.toFixed(3)),
+            longitudeDelta: Number(region.longitudeDelta.toFixed(3)),
+            movimentoManual: details?.isGesture ?? "indefinido",
+          });
+        }}
         customMapStyle={DARK_MAP_STYLE}
         showsUserLocation={locationGranted}
         showsMyLocationButton={locationGranted}
@@ -85,6 +205,7 @@ export function InteractiveMap({
       >
         {cases.map((item) => {
           const selected = item.id === selectedCaseId;
+
           return (
             <Marker
               key={item.id}
@@ -94,9 +215,21 @@ export function InteractiveMap({
               onPress={() => onSelectCase(item.id)}
               tracksViewChanges={false}
             >
-              <View style={[styles.marker, selected && styles.markerSelected]}>
-                <View style={[styles.markerCore, { backgroundColor: item.color }]} />
-                <Text style={styles.markerLabel}>{item.distance}</Text>
+              <View
+                style={[
+                  styles.marker,
+                  selected && styles.markerSelected,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.markerCore,
+                    { backgroundColor: item.color },
+                  ]}
+                />
+                <Text style={styles.markerLabel}>
+                  {item.distance}
+                </Text>
               </View>
             </Marker>
           );
@@ -105,52 +238,203 @@ export function InteractiveMap({
 
       <View style={styles.mapOverlay} pointerEvents="none">
         <View style={styles.overlayPill}>
-          <View style={[styles.statusDot, { backgroundColor: locationGranted ? COLORS.lime : COLORS.amber }]} />
-          <Text style={styles.overlayText}>{locationGranted ? "GPS ATIVO" : "CENTRO DEMONSTRATIVO"}</Text>
+          <View
+            style={[
+              styles.statusDot,
+              {
+                backgroundColor: locationGranted
+                  ? COLORS.lime
+                  : COLORS.amber,
+              },
+            ]}
+          />
+          <Text style={styles.overlayText}>
+            {locationGranted
+              ? "GPS ATIVO"
+              : "CENTRO DEMONSTRATIVO"}
+          </Text>
         </View>
       </View>
 
       {(locationLoading || locationError || !locationGranted) && (
         <View style={styles.locationNotice}>
-          <Ionicons name={locationGranted ? "checkmark-circle-outline" : "locate-outline"} size={17} color={locationGranted ? COLORS.lime : COLORS.amber} />
+          <Ionicons
+            name={
+              locationGranted
+                ? "checkmark-circle-outline"
+                : "locate-outline"
+            }
+            size={17}
+            color={
+              locationGranted
+                ? COLORS.lime
+                : COLORS.amber
+            }
+          />
           <Text style={styles.locationNoticeText}>
-            {locationLoading ? "A atualizar a sua localização…" : locationError ?? "Ative o GPS para centralizar o mapa no seu entorno."}
+            {locationLoading
+              ? "A atualizar a sua localização…"
+              : locationError ??
+                "Ative o GPS para centralizar o mapa no seu entorno."}
           </Text>
+
           {!locationLoading && !locationGranted && (
-            <Pressable onPress={onRefreshLocation} hitSlop={8} style={styles.refreshButton} accessibilityLabel="Tentar ativar a localização">
-              <Ionicons name="refresh" size={16} color={COLORS.lime} />
+            <Pressable
+              onPress={onRefreshLocation}
+              hitSlop={8}
+              style={styles.refreshButton}
+              accessibilityLabel="Tentar ativar a localização"
+            >
+              <Ionicons
+                name="refresh"
+                size={16}
+                color={COLORS.lime}
+              />
             </Pressable>
           )}
         </View>
       )}
 
       <View style={styles.legend}>
-        <View style={styles.legendItem}><View style={styles.legendDot} /><Text style={styles.legendText}>Caso ativo</Text></View>
-        <View style={styles.legendItem}><View style={styles.legendYouDot} /><Text style={styles.legendText}>Você está aqui</Text></View>
-        <Text style={styles.interactionHint}>Arraste e aproxime</Text>
+        <View style={styles.legendItem}>
+          <View style={styles.legendDot} />
+          <Text style={styles.legendText}>Caso ativo</Text>
+        </View>
+
+        <View style={styles.legendItem}>
+          <View style={styles.legendYouDot} />
+          <Text style={styles.legendText}>
+            Você está aqui
+          </Text>
+        </View>
+
+        <Text style={styles.interactionHint}>
+          Arraste e aproxime
+        </Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { overflow: "hidden", borderRadius: 17, backgroundColor: "#18211E" },
-  map: { width: "100%", height: 240 },
-  mapOverlay: { position: "absolute", left: 11, top: 11 },
-  overlayPill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 99, backgroundColor: "#0F1513DD", paddingHorizontal: 9, paddingVertical: 7 },
-  statusDot: { width: 6, height: 6, borderRadius: 6 },
-  overlayText: { color: COLORS.text, fontSize: 9, fontWeight: "900", letterSpacing: 0.7 },
-  marker: { alignItems: "center", gap: 3 },
-  markerSelected: { transform: [{ scale: 1.12 }] },
-  markerCore: { width: 18, height: 18, borderRadius: 18, borderWidth: 4, borderColor: "#C8FF3D88", shadowColor: COLORS.lime, shadowOpacity: 0.75, shadowRadius: 9, elevation: 5 },
-  markerLabel: { color: COLORS.text, fontSize: 9, fontWeight: "900", backgroundColor: "#101513EE", paddingHorizontal: 5, paddingVertical: 3, borderRadius: 6 },
-  locationNotice: { position: "absolute", left: 10, right: 10, bottom: 42, flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1, borderColor: "#43552A", borderRadius: 12, backgroundColor: "#121A16EE", paddingHorizontal: 10, paddingVertical: 8 },
-  locationNoticeText: { flex: 1, color: COLORS.muted, fontSize: 10, lineHeight: 14 },
-  refreshButton: { padding: 2 },
-  legend: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 10, backgroundColor: COLORS.surface },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  legendDot: { width: 7, height: 7, borderRadius: 7, backgroundColor: COLORS.lime },
-  legendYouDot: { width: 7, height: 7, borderRadius: 7, backgroundColor: COLORS.mint },
-  legendText: { color: COLORS.subtle, fontSize: 9 },
-  interactionHint: { flex: 1, color: COLORS.subtle, fontSize: 9, textAlign: "right" },
+  wrapper: {
+    overflow: "hidden",
+    borderRadius: 17,
+    backgroundColor: "#18211E",
+  },
+  map: {
+    width: "100%",
+    height: 240,
+  },
+  mapOverlay: {
+    position: "absolute",
+    left: 11,
+    top: 11,
+  },
+  overlayPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 99,
+    backgroundColor: "#0F1513DD",
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 6,
+  },
+  overlayText: {
+    color: COLORS.text,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+  marker: {
+    alignItems: "center",
+    gap: 3,
+  },
+  markerSelected: {
+    transform: [{ scale: 1.12 }],
+  },
+  markerCore: {
+    width: 18,
+    height: 18,
+    borderRadius: 18,
+    borderWidth: 4,
+    borderColor: "#C8FF3D88",
+    shadowColor: COLORS.lime,
+    shadowOpacity: 0.75,
+    shadowRadius: 9,
+    elevation: 5,
+  },
+  markerLabel: {
+    color: COLORS.text,
+    fontSize: 9,
+    fontWeight: "900",
+    backgroundColor: "#101513EE",
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  locationNotice: {
+    position: "absolute",
+    left: 10,
+    right: 10,
+    bottom: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderWidth: 1,
+    borderColor: "#43552A",
+    borderRadius: 12,
+    backgroundColor: "#121A16EE",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  locationNoticeText: {
+    flex: 1,
+    color: COLORS.muted,
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  refreshButton: {
+    padding: 2,
+  },
+  legend: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 10,
+    backgroundColor: COLORS.surface,
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 7,
+    backgroundColor: COLORS.lime,
+  },
+  legendYouDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 7,
+    backgroundColor: COLORS.mint,
+  },
+  legendText: {
+    color: COLORS.subtle,
+    fontSize: 9,
+  },
+  interactionHint: {
+    flex: 1,
+    color: COLORS.subtle,
+    fontSize: 9,
+    textAlign: "right",
+  },
 });
